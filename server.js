@@ -1,3 +1,4 @@
+process.env.NODE_EXTRA_CA_CERTS = require("path").join(__dirname, "certs", "russian_trusted_root_ca_pem.crt");
 const http = require("http");
 const fs = require("fs");
 const path = require("path");
