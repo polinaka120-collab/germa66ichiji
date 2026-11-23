@@ -2,5 +2,8 @@
   "name": "germa66-ichiji",
   "version": "1.0.0",
   "private": true,
-  "scripts": { "start": "node server.js" }
+  "scripts": {
+    "build": "mkdir -p certs && curl -fL https://gu-st.ru/content/lending/russian_trusted_root_ca_pem.crt -o certs/russian_trusted_root_ca_pem.crt",
+    "start": "node server.js"
+  }
 }
