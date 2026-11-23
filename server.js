@@ -1,119 +1,288 @@
-import http from "node:http";
-import { readFile, stat } from "node:fs/promises";
-import path from "node:path";
-import { fileURLToPath } from "node:url";
+const http = require("http");
+const fs = require("fs");
+const path = require("path");
+const { randomUUID } = require("crypto");
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const PORT = process.env.PORT || 10000;
+const GIGACHAT_CREDENTIALS = process.env.GIGACHAT_CREDENTIALS;
+const GIGACHAT_MODEL = process.env.GIGACHAT_MODEL || "GigaChat-2";
+
 const publicDir = path.join(__dirname, "public");
 
-// Tiny .env reader so the project has no runtime dependencies.
-try {
-  const envText = await readFile(path.join(__dirname, ".env"), "utf8");
-  for (const line of envText.split(/\r?\n/)) {
-    const match = line.match(/^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*?)\s*$/);
-    if (match && !process.env[match[1]]) process.env[match[1]] = match[2].replace(/^["']|["']$/g, "");
-  }
-} catch {}
+let accessToken = null;
+let tokenExpiresAt = 0;
 
-const PORT = Number(process.env.PORT || 3000);
-const API_KEY = process.env.OPENAI_API_KEY;
-const MODEL = process.env.OPENAI_MODEL || "gpt-6.2-astra";
+const SYSTEM_PROMPT = `
+Ты — Ичиджи Винсмок из аниме и манги One Piece.
 
-const CHARACTER_PROMPT = `Ты играешь Ичиджи Винсмока из One Piece в формате художественного интерактивного чата.
-Соблюдай узнаваемый каноничный характер: сдержанный, дисциплинированный, высокомерный, прямолинейный, расчётливый; эмоции показывает скупо, может быть язвительным и резким. Его взгляды и семейные отношения должны соответствовать лору Germa 66 и Винсмоков.
-Гибкость: развитие доверия и отношений допускается постепенно и через события, но не делай его мгновенно ласковым, бесхарактерным или постоянно согласным. Не ломай характер ради угождения собеседнику.
-Спойлеры: разрешены события всего канона One Piece, включая мангу. Не выдавай себя за официального персонажа или автора. Не утверждай, что вымышленные события являются каноном.
-Пиши естественно, как участник сцены: обычно 1–4 абзаца, без мета-комментариев и без постоянных описаний каждого жеста. Можно использовать короткие ремарки действия в *звёздочках*. Поддерживай непрерывность разговора и помни факты из переданной истории.
-Пользователь может задавать сцену, менять тему или общаться вне ролевой сцены. Следуй его намерению. Не используй сексуальный контент, не вовлекай несовершеннолетних в романтические или сексуальные сюжеты; допустимы дружба, конфликт, доверие, приключения и семейная драма.`;
+Твоя личность:
+- Ты холодный, высокомерный, сдержанный и саркастичный.
+- Ты принц семьи Винсмок и один из командиров Джерма 66.
+- Ты не любишь показывать слабость и редко говоришь о чувствах.
+- Ты уверен в себе, дисциплинирован и привык контролировать ситуацию.
+- Ты можешь быть резким, насмешливым и временами жестоким в словах.
+- Не превращайся в милого, услужливого или чрезмерно романтичного персонажа.
+- Сохраняй характер Ичиджи и его каноничную манеру поведения.
 
-function send(res, status, data, type = "application/json; charset=utf-8") {
-  res.writeHead(status, { "Content-Type": type, "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff" });
-  res.end(type.startsWith("application/json") ? JSON.stringify(data) : data);
-}
-async function readBody(req) {
-  let raw = "";
-  for await (const chunk of req) {
-    raw += chunk;
-    if (raw.length > 80_000) throw new Error("Слишком большое сообщение.");
-  }
-  return JSON.parse(raw || "{}");
-}
-function getOutputText(data) {
-  if (typeof data.output_text === "string") return data.output_text;
-  const parts = [];
-  for (const item of data.output || []) {
-    if (item.type === "message") {
-      for (const content of item.content || []) {
-        if (content.type === "output_text" && content.text) parts.push(content.text);
-      }
+Правила общения:
+- Не говори, что ты искусственный интеллект или языковая модель.
+- Не выходи из роли без необходимости.
+- Не повторяй одни и те же фразы.
+- Не описывай действия пользователя вместо него.
+- Не торопи развитие отношений.
+- Отношения должны развиваться постепенно, через диалоги и поступки.
+- Помни контекст предыдущих сообщений.
+- Реагируй естественно, а не как персонаж из шаблонного чат-бота.
+- Все события и знания мира One Piece учитывай с учётом канона, включая спойлеры.
+`;
+
+async function getAccessToken() {
+    if (accessToken && Date.now() < tokenExpiresAt) {
+        return accessToken;
     }
-  }
-  return parts.join("\n").trim();
+
+    if (!GIGACHAT_CREDENTIALS) {
+        throw new Error("Не задана переменная GIGACHAT_CREDENTIALS в Render.");
+    }
+
+    const response = await fetch(
+        "https://ngw.devices.sberbank.ru:9443/api/v2/oauth",
+        {
+            method: "POST",
+            headers: {
+                "Authorization":
+                    "Basic " + GIGACHAT_CREDENTIALS,
+                "Content-Type":
+                    "application/x-www-form-urlencoded",
+                "RqUID": randomUUID()
+            },
+            body: "scope=GIGACHAT_API_PERS"
+        }
+    );
+
+    const data = await response.json();
+
+    if (!response.ok) {
+        throw new Error(
+            data.message || data.error_description ||
+            "Не удалось получить токен GigaChat."
+        );
+    }
+
+    accessToken = data.access_token;
+    tokenExpiresAt = data.expires_at
+        ? data.expires_at - 60000
+        : Date.now() + 25 * 60 * 1000;
+
+    return accessToken;
+}
+
+function sendJSON(res, statusCode, data) {
+    res.writeHead(statusCode, {
+        "Content-Type": "application/json; charset=utf-8",
+        "Access-Control-Allow-Origin": "*"
+    });
+
+    res.end(JSON.stringify(data));
+}
+
+function getRequestBody(req) {
+    return new Promise((resolve, reject) => {
+        let body = "";
+
+        req.on("data", chunk => {
+            body += chunk;
+
+            if (body.length > 1_000_000) {
+                reject(new Error("Сообщение слишком большое."));
+                req.destroy();
+            }
+        });
+
+        req.on("end", () => {
+            try {
+                resolve(JSON.parse(body || "{}"));
+            } catch {
+                reject(new Error("Некорректный формат запроса."));
+            }
+        });
+
+        req.on("error", reject);
+    });
+}
+
+async function handleChat(req, res) {
+    try {
+        const body = await getRequestBody(req);
+
+        const messages = Array.isArray(body.messages)
+            ? body.messages
+            : [];
+
+        const safeMessages = messages
+            .filter(message =>
+                message &&
+                ["user", "assistant"].includes(message.role) &&
+                typeof message.content === "string"
+            )
+            .slice(-30)
+            .map(message => ({
+                role: message.role,
+                content: message.content.slice(0, 10000)
+            }));
+
+        if (safeMessages.length === 0) {
+            return sendJSON(res, 400, {
+                error: "Нет сообщений для отправки."
+            });
+        }
+
+        const token = await getAccessToken();
+
+        const response = await fetch(
+            "https://gigachat.devices.sberbank.ru/api/v1/chat/completions",
+            {
+                method: "POST",
+                headers: {
+                    "Authorization": `Bearer ${token}`,
+                    "Content-Type": "application/json"
+                },
+                body: JSON.stringify({
+                    model: GIGACHAT_MODEL,
+                    messages: [
+                        {
+                            role: "system",
+                            content: SYSTEM_PROMPT
+                        },
+                        ...safeMessages
+                    ],
+                    temperature: 0.85,
+                    max_tokens: 1500
+                })
+            }
+        );
+
+        const data = await response.json();
+
+        if (!response.ok) {
+            console.error("GigaChat error:", data);
+
+            return sendJSON(res, response.status, {
+                error:
+                    data.message ||
+                    data.error?.message ||
+                    "Ошибка при обращении к GigaChat."
+            });
+        }
+
+        const answer = data.choices?.[0]?.message?.content;
+
+        if (!answer) {
+            return sendJSON(res, 500, {
+                error: "GigaChat не вернул ответ."
+            });
+        }
+
+        return sendJSON(res, 200, {
+            reply: answer
+        });
+
+    } catch (error) {
+        console.error("Chat error:", error);
+
+        return sendJSON(res, 500, {
+            error: error.message || "Внутренняя ошибка сервера."
+        });
+    }
+}
+
+const mimeTypes = {
+    ".html": "text/html; charset=utf-8",
+    ".css": "text/css; charset=utf-8",
+    ".js": "application/javascript; charset=utf-8",
+    ".json": "application/json; charset=utf-8",
+    ".svg": "image/svg+xml",
+    ".png": "image/png",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".webp": "image/webp",
+    ".ico": "image/x-icon",
+    ".webmanifest": "application/manifest+json"
+};
+
+function serveStatic(req, res, pathname) {
+    let requestedPath = pathname === "/"
+        ? "/index.html"
+        : decodeURIComponent(pathname);
+
+    const filePath = path.resolve(
+        publicDir,
+        "." + requestedPath
+    );
+
+    if (
+        !filePath.startsWith(publicDir + path.sep) &&
+        filePath !== path.join(publicDir, "index.html")
+    ) {
+        res.writeHead(403);
+        return res.end("Forbidden");
+    }
+
+    fs.readFile(filePath, (error, content) => {
+        if (error) {
+            res.writeHead(404, {
+                "Content-Type": "text/plain; charset=utf-8"
+            });
+            return res.end("Not Found");
+        }
+
+        const extension = path.extname(filePath).toLowerCase();
+
+        res.writeHead(200, {
+            "Content-Type":
+                mimeTypes[extension] || "application/octet-stream"
+        });
+
+        res.end(content);
+    });
 }
 
 const server = http.createServer(async (req, res) => {
-  const url = new URL(req.url, `http://${req.headers.host || "localhost"}`);
+    const parsedUrl = new URL(
+        req.url,
+        `http://${req.headers.host || "localhost"}`
+    );
 
-  if (req.method === "GET" && url.pathname === "/api/health") {
-    return send(res, 200, { ready: Boolean(API_KEY), model: MODEL });
-  }
-
-  if (req.method === "POST" && url.pathname === "/api/chat") {
-    if (!API_KEY) return send(res, 503, { error: "Сервер пока не подключён к модели. Нужен API-ключ в файле .env." });
-    try {
-      const body = await readBody(req);
-      const messages = Array.isArray(body.messages) ? body.messages : [];
-      const safeMessages = messages
-        .filter(m => m && ["user", "assistant"].includes(m.role) && typeof m.content === "string")
-        .slice(-24)
-        .map(m => ({ role: m.role, content: m.content.slice(0, 5000) }));
-      if (!safeMessages.length || safeMessages[safeMessages.length - 1].role !== "user") {
-        return send(res, 400, { error: "Добавь сообщение перед отправкой." });
-      }
-
-      const upstream = await fetch("https://api.openai.com/v1/responses", {
-        method: "POST",
-        headers: { "Authorization": `Bearer ${API_KEY}`, "Content-Type": "application/json" },
-        body: JSON.stringify({
-          model: MODEL,
-          instructions: CHARACTER_PROMPT,
-          input: safeMessages,
-          max_output_tokens: 700
-        })
-      });
-      const data = await upstream.json().catch(() => ({}));
-      if (!upstream.ok) {
-        const message = data?.error?.message || `Ошибка API (${upstream.status}).`;
-        return send(res, 502, { error: message });
-      }
-      const answer = getOutputText(data);
-      if (!answer) return send(res, 502, { error: "Модель вернула пустой ответ. Попробуй ещё раз." });
-      return send(res, 200, { reply: answer });
-    } catch (err) {
-      return send(res, 400, { error: err?.message || "Не удалось обработать запрос." });
+    if (req.method === "OPTIONS") {
+        res.writeHead(204, {
+            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+            "Access-Control-Allow-Headers": "Content-Type"
+        });
+        return res.end();
     }
-  }
 
-  if (req.method !== "GET" && req.method !== "HEAD") return send(res, 405, { error: "Method not allowed" });
+    if (req.method === "GET" && parsedUrl.pathname === "/api/health") {
+        return sendJSON(res, 200, {
+            status: "ok",
+            provider: "GigaChat",
+            configured: Boolean(GIGACHAT_CREDENTIALS)
+        });
+    }
 
-  let pathname = decodeURIComponent(url.pathname);
-  if (pathname === "/") pathname = "/index.html";
-  const filePath = path.normalize(path.join(publicDir, pathname));
-  if (!filePath.startsWith(publicDir)) return send(res, 403, { error: "Forbidden" });
+    if (req.method === "POST" && parsedUrl.pathname === "/api/chat") {
+        return handleChat(req, res);
+    }
 
-  try {
-    const info = await stat(filePath);
-    if (!info.isFile()) throw new Error("Not a file");
-    const ext = path.extname(filePath).toLowerCase();
-    const types = { ".html": "text/html; charset=utf-8", ".css": "text/css; charset=utf-8", ".js": "text/javascript; charset=utf-8", ".json": "application/json; charset=utf-8", ".svg": "image/svg+xml", ".webmanifest": "application/manifest+json" };
-    const content = await readFile(filePath);
-    res.writeHead(200, { "Content-Type": types[ext] || "application/octet-stream", "Cache-Control": ext === ".html" ? "no-cache" : "public, max-age=3600" });
-    res.end(content);
-  } catch {
-    send(res, 404, { error: "Not found" });
-  }
+    if (req.method === "GET") {
+        return serveStatic(req, res, parsedUrl.pathname);
+    }
+
+    return sendJSON(res, 404, {
+        error: "Маршрут не найден."
+    });
 });
 
 server.listen(PORT, "0.0.0.0", () => {
-  console.log(`GERMA 66 is running at http://localhost:${PORT}`);
+    console.log(`GERMA 66 is running on port ${PORT}`);
 });
