@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#101114">
+  <meta name="description" content="Личный чат с Ичиджи Винсмоком в атмосфере Germa 66.">
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="icon" href="/icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/styles.css">
+  <title>GERMA 66 // ICHИJI</title>
+</head>
+<body>
+  <div class="app-shell">
+    <header class="topbar">
+      <div class="brand-mark"><span class="brand-emblem">66</span><div><div class="eyebrow">GERMA KINGDOM</div><div class="brand-name">GERMA <b>66</b></div></div></div>
+      <button class="icon-button" id="menuBtn" aria-label="Открыть настройки" title="Настройки">⋯</button>
+    </header>
+
+    <main class="chat-layout">
+      <section class="character-panel">
+        <div class="portrait-wrap">
+          <div class="portrait-placeholder">
+            <div class="portrait-number">01</div>
+            <div class="portrait-silhouette">I</div>
+            <div class="portrait-caption">VINSMOKE / FIRST SON</div>
+          </div>
+        </div>
+        <div class="character-info">
+          <div class="status-line"><span class="status-dot"></span> CONNECTION ESTABLISHED</div>
+          <h1>Винсмок <span>Ичиджи</span></h1>
+          <p class="role">GERMA 66 · SPARKING RED</p>
+          <p class="character-quote">«Не заставляй меня повторять.»</p>
+        </div>
+        <div class="panel-footer"><span>SECURE CHANNEL</span><span>№ 001</span></div>
+      </section>
+
+      <section class="conversation">
+        <div class="conversation-head">
+          <div><div class="eyebrow">PRIVATE TRANSMISSION</div><h2>Личный канал</h2></div>
+          <span class="live-label"><i></i> ONLINE</span>
+        </div>
+        <div class="messages" id="messages" aria-live="polite">
+          <div class="date-divider"><span>КАНАЛ ОТКРЫТ</span></div>
+          <article class="message assistant">
+            <div class="message-avatar">I</div>
+            <div class="bubble-wrap"><div class="sender">ICHИJI <span>· GERMA 66</span></div><div class="bubble">Ты подключилась. Надеюсь, у тебя есть причина отвлекать меня от дел Гермы.</div><time>СЕЙЧАС</time></div>
+          </article>
+        </div>
+        <div class="typing" id="typing" hidden><span></span><span></span><span></span><em>Ичиджи печатает…</em></div>
+        <form class="composer" id="chatForm">
+          <textarea id="messageInput" rows="1" maxlength="4000" placeholder="Написать сообщение…" autocomplete="off"></textarea>
+          <button class="send-button" id="sendBtn" aria-label="Отправить сообщение"><span>➤</span></button>
+        </form>
+        <div class="composer-note">ENTER — ОТПРАВИТЬ · SHIFT + ENTER — НОВАЯ СТРОКА</div>
+      </section>
+    </main>
+    <footer class="bottomline"><span>VINSМOKE FAMILY NETWORK</span><span>ALL SYSTEMS NOMINAL</span></footer>
+  </div>
+
+  <div class="modal-backdrop" id="settingsModal" hidden>
+    <section class="settings-card" role="dialog" aria-modal="true" aria-labelledby="settingsTitle">
+      <div class="settings-head"><div><div class="eyebrow">SYSTEM CONTROL</div><h2 id="settingsTitle">Настройки канала</h2></div><button class="icon-button" id="closeSettings" aria-label="Закрыть">×</button></div>
+      <p class="settings-copy">История переписки хранится локально в этом браузере. Сервер получает последние сообщения, чтобы Ичиджи сохранял контекст.</p>
+      <div class="setting-row"><div><b>Состояние подключения</b><small id="connectionStatus">Проверка…</small></div><span class="status-pill" id="statusPill">…</span></div>
+      <button class="secondary-button" id="exportBtn">Экспортировать переписку</button>
+      <button class="danger-button" id="clearBtn">Очистить переписку</button>
+      <p class="tiny-note">Это фанатский проект, не связанный с правообладателями One Piece. Не отправляй в чат пароли и личные данные.</p>
+    </section>
+  </div>
+  <script src="/app.js"></script>
+</body>
+</html>
